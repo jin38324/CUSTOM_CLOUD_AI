@@ -23,7 +23,7 @@ BEGIN
     CUSTOM_CLOUD_AI.REGIST_MODEL(
 		provider    =>    'deepseek',    -- a custom name
 		endpoint    =>    'https://api.deepseek.com/chat/completions',  -- API endpoint
-		auth    =>    'sk-08a3b043cac6412c9b8ffa75dd530357',  -- API key
+		auth    =>    'sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxx',  -- API key
 		response_parse_path    =>    '$.choices[0].message.content',  -- how to parse response json, depends on the API, https://docs.oracle.com/en/database/oracle/oracle-database/23/adjsn/json-path-expressions.html
 		request_template    =>    '{
     "model": "<MODEL>",
