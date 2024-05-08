@@ -1,0 +1,2 @@
+# CUSTOM_CLOUD_AI
+使用自定义PL/SQL构建类似于SELECT AI的功能。
