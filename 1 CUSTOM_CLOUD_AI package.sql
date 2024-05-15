@@ -18,7 +18,7 @@ create or replace package CUSTOM_CLOUD_AI is
     procedure CREATE_PROFILE (
         PROFILE_NAME varchar2,
         DESCRIPTION varchar2,
-        ATTRIBUTES clob
+        ATTRIBUTES CLOB
     );
 
 -- Delete profile to remove model config information
@@ -64,8 +64,6 @@ end CUSTOM_CLOUD_AI;
 /
 
 
-
--------------------------------------------------------------------
 
 
 create or replace package body CUSTOM_CLOUD_AI is
@@ -128,104 +126,96 @@ create or replace package body CUSTOM_CLOUD_AI is
     procedure CREATE_PROFILE (
         PROFILE_NAME varchar2,
         DESCRIPTION varchar2,
-        ATTRIBUTES clob
+        ATTRIBUTES CLOB
     )
     is
-        V_PROVIDER varchar2(100);
-        V_MODEL varchar2(100);
-        V_TEMPERATURE number;
-        V_MAX_TOKENS number;
-        V_STOP_TOKENS varchar2(1000);
-        V_OBJECT_LIST clob;
+        l_json_attributes JSON_OBJECT_T;
 
-        V_PROVIDER_LOW varchar2(100);
-        V_MODEL_LOW varchar2(100);
-        V_TEMPERATURE_LOW number;
-        V_MAX_TOKENS_LOW number;
-        V_STOP_TOKENS_LOW varchar2(1000);
-        V_OBJECT_LIST_LOW clob;
+        l_provider varchar2(256);
+        l_model varchar2(256);
+        l_tempreture number;
+        l_max_tokens number;
+        l_stop_tokens varchar2(1000);
+        l_object_list JSON_ARRAY_T;
+        l_object_list_clob clob;
 
-        V_PROMPT_TEMPLATE varchar2(32767) := 'Read the below table description and write an oracle sql to answer the following question. 
-Pay attention to table name, use only below tables.
+        l_prompt_template clob := 'You are a data analyst who is proficient in Oracle SQL.
+
+Task Description: Generate Oracle SQL queries based on the provided table schema (DDL).
+
+Input:
+1. User Question: [Specify the question the user asks, which requires a SQL query response]
+2. Table Namesand Table DDL: [Provide the Data Definition Language (DDL) for the table, including column names, data types, and comments. Column comments should be used as alias in output SQL.]
+3. T_EXPENSE_WIDE_TABLE is the main table, containing the expense record of persons . If the expense content includes meals, it may be associated with V_EXPENSE_BILL_DISH, which contains meal-related dish information.
+
+Output:
+SQL Query: [Generated SQL query based on the given task]
+
+Additional Instructions/Notes:
+1. Ensure that the generated SQL query is syntactically correct and applicable to the provided table schema.
+2. Only generate SELECT SQL queries, never answer INSERT, UPDATE, DELETE etc.
+3. If applicable, provide additional context or constraints that should be considered when generating the SQL query.
+4. Generate plain text without markdown formate. Do not write anything else except the SQL query.
+5. Always use English column names and Chinese column alias. 
+6. Select proper columns. Keep the column sort order as above.
+7. If the question is too cpmplex to answer, you can think it step by step.
+
+Input:
+QUESTION:<prompt>
 
 Oracle databse tables with their properties:
 <table_infos>
 
-Question:
-<prompt>
+<Example SQL pitch>
 
-Task:
-generate plain text without markdown formate. Do not write anything else except the sql query.
-Use full table name, contains schema name.
-Select proper columns. Keep the column sort order as above.
-
-Generated oracle sql statement:';
-    V_PROMPT_DDL varchar2(32767) := '### Table meaning: <table_comment>
+Output:';
+    
+    l_prompt_ddl clob := '### Table meaning: <table_comment>
 column_name data_type, 
 CREATE TABLE  <schema>.<table_name> (
 <column_info>';
 
     begin
-        V_PROMPT_TEMPLATE := REPLACE(V_PROMPT_TEMPLATE,chr(10),'\n');
-        V_PROMPT_DDL := REPLACE(V_PROMPT_DDL,chr(10),'\n');
         -- 解析attributes JSON 数据
-        select json_value(ATTRIBUTES, '$.PROVIDER'),
-               json_value(ATTRIBUTES, '$.MODEL'),
-               to_number(json_value(ATTRIBUTES, '$.TEMPERATURE')),
-               to_number(json_value(ATTRIBUTES, '$.MAX_TOKENS')),
-               json_value(ATTRIBUTES, '$.STOP_TOKENS'),
-               json_query(ATTRIBUTES, '$.OBJECT_LIST')
-        into V_PROVIDER, V_MODEL, V_TEMPERATURE, V_MAX_TOKENS, V_STOP_TOKENS, V_OBJECT_LIST
-        from DUAL;
+        l_json_attributes := JSON_OBJECT_T(ATTRIBUTES);
 
-        select json_value(ATTRIBUTES, '$.provider'),
-               json_value(ATTRIBUTES, '$.model'),
-               to_number(json_value(ATTRIBUTES, '$.temprature')),
-               to_number(json_value(ATTRIBUTES, '$.max_tokens')),
-               json_value(ATTRIBUTES, '$.stop_tokens'),
-               json_query(ATTRIBUTES, '$.object_list')
-        into V_PROVIDER_LOW, V_MODEL_LOW, V_TEMPERATURE_LOW, V_MAX_TOKENS_LOW, V_STOP_TOKENS_LOW, V_OBJECT_LIST_LOW
-        from DUAL;
+        l_provider := NVL(
+                NVL( l_json_attributes.get_String('provider'),l_json_attributes.get_String('PROVIDER')
+            ), NULL);
+        l_model := NVL(
+                NVL( l_json_attributes.get_String('model'),l_json_attributes.get_String('MODEL')
+            ), NULL);
+        l_tempreture := NVL(
+                NVL( l_json_attributes.get_Number('tempreture'),l_json_attributes.get_Number('TEMPRETURE')
+            ), 0);
+        l_max_tokens := NVL(
+                NVL( l_json_attributes.get_Number('max_tokens'),l_json_attributes.get_Number('MAX_TOKENS')
+            ), NULL);
+        l_stop_tokens := NVL(
+                NVL( l_json_attributes.get_String('stop_tokens'),l_json_attributes.get_String('STOP_TOKENS')
+            ), '[]');
 
-        if V_PROVIDER is null then V_PROVIDER := V_PROVIDER_LOW;end if;
-        if V_MODEL is null then V_MODEL := V_MODEL_LOW;end if;
-        if V_TEMPERATURE is null then V_TEMPERATURE := V_TEMPERATURE_LOW;end if;
-        if V_MAX_TOKENS is null then V_MAX_TOKENS := V_MAX_TOKENS_LOW;end if;
-        if V_STOP_TOKENS is null then V_STOP_TOKENS := V_STOP_TOKENS_LOW;end if;
-        if V_OBJECT_LIST is null then V_OBJECT_LIST := V_OBJECT_LIST_LOW;end if;
+        l_object_list := NVL(
+                NVL( l_json_attributes.get_Array('object_list'),l_json_attributes.get_Array('OBJECT_LIST')
+            ), NULL);
 
-        if V_TEMPERATURE is null then V_TEMPERATURE := 0; end if;
-        if V_MAX_TOKENS is null then V_MAX_TOKENS := 4000; end if;
-        if V_STOP_TOKENS is null then V_STOP_TOKENS := 'null'; end if;
+        IF l_object_list IS NOT NULL THEN l_object_list_clob := l_object_list.to_clob; END IF;        
 
+        IF l_provider IS NULL OR l_model IS NULL OR l_object_list IS NULL THEN
+            DBMS_OUTPUT.PUT_LINE('ERROR: PROFILE INFORMATION IS NOT COMPLETE!!');        
+        END IF;
+        
         -- 插入数据到表CUSTOM_CLOUD_AI_PROFILES
         insert into CUSTOM_CLOUD_AI_PROFILES (
-            AI_PROFILE_NAME,
-            AI_DESCRIPTION,
-            PROVIDER,
-            MODEL,
-            TEMPERATURE,
-            MAX_TOKENS,
-            STOP_TOKENS,
-            OBJECT_LIST,
-            PROMPT_TEMPLATE,
-            PROMPT_DDL
-        ) values (
-            PROFILE_NAME,
-            DESCRIPTION,
-            V_PROVIDER,
-            V_MODEL,
-            V_TEMPERATURE,
-            V_MAX_TOKENS,
-            V_STOP_TOKENS,
-            UPPER(V_OBJECT_LIST),
-            V_PROMPT_TEMPLATE,
-            V_PROMPT_DDL
-        );
+                    AI_PROFILE_NAME, AI_DESCRIPTION, ATTRIBUTES, PROVIDER, MODEL, TEMPERATURE, MAX_TOKENS, STOP_TOKENS, OBJECT_LIST, PROMPT_TEMPLATE, PROMPT_DDL
+                ) values (
+                    PROFILE_NAME, DESCRIPTION, ATTRIBUTES, l_provider, l_model, l_tempreture, l_max_tokens, l_stop_tokens, l_object_list_clob, l_prompt_template, l_prompt_ddl
+                );
 
         commit;
 
         DBMS_OUTPUT.PUT_LINE('PROFILE CREATED SUCCESSFULLY');
+        
     exception
         when others then
             rollback;
@@ -285,18 +275,21 @@ CREATE TABLE  <schema>.<table_name> (
         PROMPT varchar2,
         PROFILE_NAME varchar2
     ) return varchar2
-    is
+    is        
+        l_request_body  varchar2(32767);
+
         L_HTTP_REQUEST  UTL_HTTP.REQ;
         L_HTTP_RESPONSE UTL_HTTP.RESP;
+
         L_PROVIDER      varchar2(256);
         L_URL           varchar2(4000);
         L_TOKEN         varchar2(4000);
-        L_REQUEST_BODY  varchar2(30000);
         L_RESPONSE_BODY clob;
         L_JSONPATH      varchar2(4000);
         L_ANSWER        varchar2(4000);
 
-        V_MODEL         varchar2(100);
+        V_PROMPT        varchar2(4000);
+        V_MODEL         varchar2(256);
         V_TEMPERATURE   number;
         V_MAX_TOKENS    number;
         V_STOP_TOKENS   varchar2(256);
@@ -309,35 +302,33 @@ CREATE TABLE  <schema>.<table_name> (
 
         -- Retrieve model information
         select MODEL_PROVIDER, MODEL_ENDPOINT, MODEL_AUTH, MODEL_RESPONSE_PARSE_PATH, MODEL_REQUEST_TEMPLATE
-        into L_PROVIDER, L_URL ,L_TOKEN, L_JSONPATH, L_REQUEST_BODY
+        into L_PROVIDER, L_URL ,L_TOKEN, L_JSONPATH, l_request_body
         from CUSTOM_CLOUD_AI_REGEST_MODELS
         where UPPER(MODEL_PROVIDER) = UPPER(L_PROVIDER);
 
+        V_PROMPT := REPLACE(REPLACE(PROMPT,CHR(13),'\n'),CHR(10),'\n');
+        V_PROMPT := REPLACE(V_PROMPT,'"','\"');
+
         -- Construct request body
-        L_REQUEST_BODY := REPLACE(L_REQUEST_BODY,'<MODEL>',V_MODEL);
-        L_REQUEST_BODY := REPLACE(L_REQUEST_BODY,'<TEMPERATURE>',TO_CHAR(V_TEMPERATURE));
-        L_REQUEST_BODY := REPLACE(L_REQUEST_BODY,'<MAX_TOKENS>',TO_CHAR(V_MAX_TOKENS));
-        L_REQUEST_BODY := REPLACE(L_REQUEST_BODY,'<STOP>',V_STOP_TOKENS);
-        L_REQUEST_BODY := REPLACE(L_REQUEST_BODY,'<CONTENT>',PROMPT);
-
-        -- Open HTTP request
-        L_HTTP_REQUEST := UTL_HTTP.BEGIN_REQUEST(URL => L_URL, METHOD => 'POST', HTTP_VERSION => 'HTTP/1.1');
+        l_request_body := REPLACE(l_request_body,'<CONTENT>',V_PROMPT);
+        l_request_body := REPLACE(l_request_body,'<MODEL>',V_MODEL);
+        l_request_body := REPLACE(l_request_body,'<TEMPERATURE>',TO_CHAR(V_TEMPERATURE));
+        l_request_body := REPLACE(l_request_body,'<MAX_TOKENS>',NVL(TO_CHAR(V_MAX_TOKENS),'null'));
+        l_request_body := REPLACE(l_request_body,'<STOP>',V_STOP_TOKENS);
         
-        -- Set request headers
-        
+         -- Open HTTP request
+        L_HTTP_REQUEST := UTL_HTTP.BEGIN_REQUEST(URL => L_URL, METHOD => 'POST', HTTP_VERSION => 'HTTP/1.1');        
           
-          UTL_HTTP.set_header(l_http_request, 'Content-Type', 'application/json');
-          UTL_HTTP.set_header(l_http_request, 'Accept', 'application/json');
-          UTL_HTTP.set_header(l_http_request, 'Authorization', 'Bearer ' || l_token);
-        
-        -- Set request body
-        UTL_HTTP.SET_BODY_CHARSET(L_HTTP_REQUEST, 'UTF-8');
-        -- L_REQUEST_BODY := utl_url.escape(L_REQUEST_BODY, true, 'UTF8');
-        UTL_HTTP.SET_HEADER(L_HTTP_REQUEST, 'Content-Length', LENGTHB(L_REQUEST_BODY));
-        UTL_HTTP.WRITE_TEXT(L_HTTP_REQUEST, L_REQUEST_BODY);
+        UTL_HTTP.set_header(l_http_request, 'Content-Type', 'application/json');
+        UTL_HTTP.set_header(l_http_request, 'Accept', 'application/json');
+        UTL_HTTP.set_header(l_http_request, 'Authorization', 'Bearer ' || l_token);
 
-        DBMS_OUTPUT.put_line(L_REQUEST_BODY);
-        -- RETURN L_REQUEST_BODY;
+        UTL_HTTP.SET_BODY_CHARSET(L_HTTP_REQUEST, 'UTF-8');
+        UTL_HTTP.SET_HEADER(L_HTTP_REQUEST, 'Content-Length', LENGTHB(l_request_body));       
+        
+        UTL_HTTP.WRITE_TEXT(L_HTTP_REQUEST, l_request_body);
+        DBMS_OUTPUT.put_line(l_request_body);
+
         -- Get HTTP response
         L_HTTP_RESPONSE := UTL_HTTP.GET_RESPONSE(L_HTTP_REQUEST);
         
@@ -347,7 +338,6 @@ CREATE TABLE  <schema>.<table_name> (
         -- Close HTTP response
         UTL_HTTP.END_RESPONSE(L_HTTP_RESPONSE);
         L_RESPONSE_BODY := REPLACE(L_RESPONSE_BODY, '''', '''''');
-        -- RETURN L_RESPONSE_BODY;
         
         -- Handle response
         DBMS_OUTPUT.put_line('Response: ' || l_response_body);
@@ -380,16 +370,16 @@ CREATE TABLE  <schema>.<table_name> (
         MY_TABLE_NAME in varchar2,
         PROFILE_NAME in varchar2
         ) return varchar2 is
-        TEMPLATE_TABLE varchar(32767);
+        -- TEMPLATE_TABLE varchar(32767);
         TABLE_INFO varchar(32767);
         TABLE_COMMENT varchar(32767);
         COLUMN_INFO varchar(32767);
         begin
-            select PROMPT_DDL into TEMPLATE_TABLE 
+            select PROMPT_DDL into TABLE_INFO 
             from CUSTOM_CLOUD_AI_PROFILES 
             where UPPER(AI_PROFILE_NAME)=UPPER(PROFILE_NAME);
                 
-            TABLE_INFO :=  REPLACE(TEMPLATE_TABLE,chr(10),'\n');
+            -- TABLE_INFO :=  REPLACE(TEMPLATE_TABLE,chr(10),'\n');
 
             select COMMENTS into TABLE_COMMENT
             from ALL_TAB_COMMENTS
@@ -399,7 +389,7 @@ CREATE TABLE  <schema>.<table_name> (
             TABLE_INFO := REPLACE(TABLE_INFO,'<table_name>',MY_TABLE_NAME);
             TABLE_INFO := REPLACE(TABLE_INFO,'<table_comment>',TABLE_COMMENT);
 
-            select listagg(COL_INFO,'\n') into COLUMN_INFO
+            select listagg(COL_INFO,chr(10)) into COLUMN_INFO
             from (
                 select COLUMN_NAME||' '||DATA_TYPE||','||COMMENTS as COL_INFO
                 from (
@@ -413,7 +403,7 @@ CREATE TABLE  <schema>.<table_name> (
             );
             
             TABLE_INFO := REPLACE(TABLE_INFO,'<column_info>',COLUMN_INFO);
-            TABLE_INFO := TABLE_INFO||');';
+            TABLE_INFO := TABLE_INFO||CHR(10)||');'||CHR(10);
             -- EXCEPTION WHEN NO_DATA_FOUND THEN NULL; 
             return TABLE_INFO;
         end GET_TABLE_INFO;
@@ -422,7 +412,13 @@ CREATE TABLE  <schema>.<table_name> (
     function SHOWPROMPT(
         PROMPT in varchar2,
         PROFILE_NAME in varchar2
-        ) return varchar2 is        
+        ) return varchar2 is
+        l_object_list clob;
+        l_object_list_array JSON_ARRAY_T;
+        l_object_elem JSON_ELEMENT_T;
+        l_object JSON_OBJECT_T;
+        l_owner VARCHAR2(1024);
+        l_table_name VARCHAR2(1024);
         TABLE_INFOS varchar(32767) := '';
         EXAMPLE_SQL varchar2(32767);
         PROMPT_NEW varchar2(32767);
@@ -431,34 +427,36 @@ CREATE TABLE  <schema>.<table_name> (
             select PROMPT_TEMPLATE into TEMPLATE_POMPT 
             from CUSTOM_CLOUD_AI_PROFILES 
             where UPPER(AI_PROFILE_NAME)=UPPER(PROFILE_NAME);
+            
+            SELECT OBJECT_LIST INTO l_object_list
+            from CUSTOM_CLOUD_AI_PROFILES
+            where UPPER(AI_PROFILE_NAME)=UPPER(PROFILE_NAME);
 
-            for TAB in (
-                select JT.OWNER,JT.NAME
-                from CUSTOM_CLOUD_AI_PROFILES,
-                json_table(OBJECT_LIST, '$[*]'
-                    columns ( OWNER varchar2(256) path '$.OWNER',
-                              NAME varchar2(256) path '$.NAME'
-                    )) as JT
-                    where UPPER(AI_PROFILE_NAME)=UPPER(PROFILE_NAME)
+            l_object_list_array := JSON_ARRAY_T(l_object_list);
 
-                ) loop
-                    begin
-                        TABLE_INFOS := TABLE_INFOS ||'\n\n'|| GET_TABLE_INFO(TAB.OWNER,TAB.NAME,PROFILE_NAME);
+            FOR indx IN 0 .. l_object_list_array.get_size - 1
+            LOOP
+              l_object_elem := l_object_list_array.get(indx);
+              l_object := TREAT (l_object_elem AS JSON_OBJECT_T);
+              l_owner := NVL(l_object.get_string('owner'),l_object.get_string('OWNER'));
+              l_table_name := NVL(l_object.get_string('name'),l_object.get_string('NAME'));
+              begin
+                        TABLE_INFOS := TABLE_INFOS || GET_TABLE_INFO(l_owner,l_table_name,PROFILE_NAME);
                     exception
                         when NO_DATA_FOUND then
                             -- 如果没有找到数据，则跳过当前循环迭代
                             continue;
                     end;
-                end loop;
+            END LOOP;            
 
             -- example_sql := match_keyword(PROMPT, MY_PROFILE_NAME);
             
             PROMPT_NEW := REPLACE(TEMPLATE_POMPT,'<table_infos>',TABLE_INFOS);
             
-            -- prompt_new := REPLACE(prompt_new,'<Example SQL pitch>',example_sql);
+            prompt_new := REPLACE(prompt_new,'<Example SQL pitch>','');
             PROMPT_NEW := REPLACE(PROMPT_NEW,'<prompt>',PROMPT);
 
-            PROMPT_NEW := REPLACE(PROMPT_NEW,chr(10),'\n');
+            -- PROMPT_NEW := REPLACE(PROMPT_NEW,chr(10),'\n');
 
             return PROMPT_NEW;
         end SHOWPROMPT;
