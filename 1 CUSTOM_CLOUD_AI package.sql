@@ -1,10 +1,12 @@
-create or replace package CUSTOM_CLOUD_AI is
+CREATE OR REPLACE package CUSTOM_CLOUD_AI is
 
 -- Regist public LLM AI model endpoint
     procedure  REGIST_MODEL (
         PROVIDER varchar2,
         ENDPOINT varchar2,
         AUTH varchar2,
+        https_wallet_path VARCHAR2,
+        https_wallet_password VARCHAR2,
         RESPONSE_PARSE_PATH varchar2,
         REQUEST_TEMPLATE varchar2
     );
@@ -46,7 +48,7 @@ create or replace package CUSTOM_CLOUD_AI is
         PROFILE_NAME in varchar2
         ) return varchar2;
 
--- Return prompt generated for SELECT AI 
+-- Return prompt generated for SELECT AI
     function SHOWPROMPT(
         PROMPT in varchar2,
         PROFILE_NAME in varchar2
@@ -63,16 +65,15 @@ create or replace package CUSTOM_CLOUD_AI is
 end CUSTOM_CLOUD_AI;
 /
 
-
-
-
-create or replace package body CUSTOM_CLOUD_AI is
+CREATE OR REPLACE package body CUSTOM_CLOUD_AI is
 
 -- 注册模型
     procedure  REGIST_MODEL (
         PROVIDER varchar2,
         ENDPOINT varchar2,
         AUTH varchar2,
+        https_wallet_path VARCHAR2,
+        https_wallet_password VARCHAR2,
         RESPONSE_PARSE_PATH varchar2,
         REQUEST_TEMPLATE varchar2
     )
@@ -82,12 +83,16 @@ create or replace package body CUSTOM_CLOUD_AI is
             MODEL_PROVIDER,
             MODEL_ENDPOINT,
             MODEL_AUTH,
+            https_wallet_path,
+            https_wallet_password,
             MODEL_RESPONSE_PARSE_PATH,
             MODEL_REQUEST_TEMPLATE
         ) values (
             PROVIDER,
             ENDPOINT,
             AUTH,
+            https_wallet_path,
+            https_wallet_password,
             RESPONSE_PARSE_PATH,
             REQUEST_TEMPLATE
         );
@@ -141,37 +146,37 @@ create or replace package body CUSTOM_CLOUD_AI is
 
         l_prompt_template clob := 'You are a data analyst who is proficient in Oracle SQL.
 
-Task Description: Generate Oracle SQL queries based on the provided table schema (DDL).
+Task Description: Generate Oracle SQL queries based on the provided context table schema (DDL).
+
+Context:
+Table Names and Table DDL: [Provide the Data Definition Language (DDL) for the table, including column names, data types, and comments. Column comments explain the meaning of each column.]
 
 Input:
-1. User Question: [Specify the question the user asks, which requires a SQL query response]
-2. Table Namesand Table DDL: [Provide the Data Definition Language (DDL) for the table, including column names, data types, and comments. Column comments should be used as alias in output SQL.]
-3. T_EXPENSE_WIDE_TABLE is the main table, containing the expense record of persons . If the expense content includes meals, it may be associated with V_EXPENSE_BILL_DISH, which contains meal-related dish information.
+User Question: [Specify the question the user asks, which requires a SQL query response]
 
 Output:
-SQL Query: [Generated SQL query based on the given task]
+Executable clean SQL Query without text explaination: [Generated SQL query based on the given task]
 
 Additional Instructions/Notes:
 1. Ensure that the generated SQL query is syntactically correct and applicable to the provided table schema.
 2. Only generate SELECT SQL queries, never answer INSERT, UPDATE, DELETE etc.
-3. If applicable, provide additional context or constraints that should be considered when generating the SQL query.
-4. Generate plain text without markdown formate. Do not write anything else except the SQL query.
-5. Always use English column names and Chinese column alias. 
-6. Select proper columns. Keep the column sort order as above.
-7. If the question is too cpmplex to answer, you can think it step by step.
+3. Generate plain text without markdown formate. Do not write anything else except the SQL query.
+4. Always use English column names and Chinese column alias.
+5. Select proper columns. Keep the column sort order as above.
+6. If the question is too complex to answer, you can think it step by step. For example, the question "How many times do customers who spend more than 1000 spend" can be decomposed into "1. Who are the customers who spend more than 1000, 2. What are the times these users spend" .
 
-Input:
-QUESTION:<prompt>
-
-Oracle databse tables with their properties:
+Context:Oracle databse tables with their properties
 <table_infos>
 
 <Example SQL pitch>
 
+Input:
+User Question:<prompt>
+
 Output:';
     
     l_prompt_ddl clob := '### Table meaning: <table_comment>
-column_name data_type, 
+column_name data_type,
 CREATE TABLE  <schema>.<table_name> (
 <column_info>';
 
@@ -199,10 +204,10 @@ CREATE TABLE  <schema>.<table_name> (
                 NVL( l_json_attributes.get_Array('object_list'),l_json_attributes.get_Array('OBJECT_LIST')
             ), NULL);
 
-        IF l_object_list IS NOT NULL THEN l_object_list_clob := l_object_list.to_clob; END IF;        
+        IF l_object_list IS NOT NULL THEN l_object_list_clob := l_object_list.to_clob; END IF;
 
         IF l_provider IS NULL OR l_model IS NULL OR l_object_list IS NULL THEN
-            DBMS_OUTPUT.PUT_LINE('ERROR: PROFILE INFORMATION IS NOT COMPLETE!!');        
+            DBMS_OUTPUT.PUT_LINE('ERROR: PROFILE INFORMATION IS NOT COMPLETE!!');
         END IF;
         
         -- 插入数据到表CUSTOM_CLOUD_AI_PROFILES
@@ -275,7 +280,7 @@ CREATE TABLE  <schema>.<table_name> (
         PROMPT varchar2,
         PROFILE_NAME varchar2
     ) return varchar2
-    is        
+    is
         l_request_body  varchar2(32767);
 
         L_HTTP_REQUEST  UTL_HTTP.REQ;
@@ -288,26 +293,32 @@ CREATE TABLE  <schema>.<table_name> (
         L_JSONPATH      varchar2(4000);
         L_ANSWER        varchar2(4000);
 
+        l_https_wallet_path VARCHAR2(1024);
+        l_https_wallet_password VARCHAR2(1024);
+
         V_PROMPT        varchar2(4000);
         V_MODEL         varchar2(256);
         V_TEMPERATURE   number;
         V_MAX_TOKENS    number;
         V_STOP_TOKENS   varchar2(256);
+
     begin
         -- Retrieve profile information
         select PROVIDER, MODEL, TEMPERATURE, MAX_TOKENS, STOP_TOKENS
         into L_PROVIDER, V_MODEL, V_TEMPERATURE, V_MAX_TOKENS, V_STOP_TOKENS
-        from CUSTOM_CLOUD_AI_PROFILES 
+        from CUSTOM_CLOUD_AI_PROFILES
         where UPPER(AI_PROFILE_NAME) = UPPER(PROFILE_NAME);
 
         -- Retrieve model information
-        select MODEL_PROVIDER, MODEL_ENDPOINT, MODEL_AUTH, MODEL_RESPONSE_PARSE_PATH, MODEL_REQUEST_TEMPLATE
-        into L_PROVIDER, L_URL ,L_TOKEN, L_JSONPATH, l_request_body
+        select MODEL_PROVIDER, MODEL_ENDPOINT, MODEL_AUTH, MODEL_RESPONSE_PARSE_PATH, MODEL_REQUEST_TEMPLATE, https_wallet_path, https_wallet_password
+        into L_PROVIDER, L_URL ,L_TOKEN, L_JSONPATH, l_request_body, l_https_wallet_path, l_https_wallet_password
         from CUSTOM_CLOUD_AI_REGEST_MODELS
         where UPPER(MODEL_PROVIDER) = UPPER(L_PROVIDER);
 
         V_PROMPT := REPLACE(REPLACE(PROMPT,CHR(13),'\n'),CHR(10),'\n');
         V_PROMPT := REPLACE(V_PROMPT,'"','\"');
+
+        DBMS_OUTPUT.put_line('BEGIN');
 
         -- Construct request body
         l_request_body := REPLACE(l_request_body,'<CONTENT>',V_PROMPT);
@@ -317,14 +328,15 @@ CREATE TABLE  <schema>.<table_name> (
         l_request_body := REPLACE(l_request_body,'<STOP>',V_STOP_TOKENS);
         
          -- Open HTTP request
-        L_HTTP_REQUEST := UTL_HTTP.BEGIN_REQUEST(URL => L_URL, METHOD => 'POST', HTTP_VERSION => 'HTTP/1.1');        
+        UTL_HTTP.set_wallet('file:'||l_https_wallet_path, l_https_wallet_password);
+        L_HTTP_REQUEST := UTL_HTTP.BEGIN_REQUEST(URL => L_URL, METHOD => 'POST', HTTP_VERSION => 'HTTP/1.1');
           
         UTL_HTTP.set_header(l_http_request, 'Content-Type', 'application/json');
         UTL_HTTP.set_header(l_http_request, 'Accept', 'application/json');
         UTL_HTTP.set_header(l_http_request, 'Authorization', 'Bearer ' || l_token);
 
         UTL_HTTP.SET_BODY_CHARSET(L_HTTP_REQUEST, 'UTF-8');
-        UTL_HTTP.SET_HEADER(L_HTTP_REQUEST, 'Content-Length', LENGTHB(l_request_body));       
+        UTL_HTTP.SET_HEADER(L_HTTP_REQUEST, 'Content-Length', LENGTHB(l_request_body));
         
         UTL_HTTP.WRITE_TEXT(L_HTTP_REQUEST, l_request_body);
         DBMS_OUTPUT.put_line(l_request_body);
@@ -375,8 +387,8 @@ CREATE TABLE  <schema>.<table_name> (
         TABLE_COMMENT varchar(32767);
         COLUMN_INFO varchar(32767);
         begin
-            select PROMPT_DDL into TABLE_INFO 
-            from CUSTOM_CLOUD_AI_PROFILES 
+            select PROMPT_DDL into TABLE_INFO
+            from CUSTOM_CLOUD_AI_PROFILES
             where UPPER(AI_PROFILE_NAME)=UPPER(PROFILE_NAME);
                 
             -- TABLE_INFO :=  REPLACE(TEMPLATE_TABLE,chr(10),'\n');
@@ -404,11 +416,11 @@ CREATE TABLE  <schema>.<table_name> (
             
             TABLE_INFO := REPLACE(TABLE_INFO,'<column_info>',COLUMN_INFO);
             TABLE_INFO := TABLE_INFO||CHR(10)||');'||CHR(10);
-            -- EXCEPTION WHEN NO_DATA_FOUND THEN NULL; 
+            -- EXCEPTION WHEN NO_DATA_FOUND THEN NULL;
             return TABLE_INFO;
         end GET_TABLE_INFO;
 
--- Return prompt generated for SELECT AI 
+-- Return prompt generated for SELECT AI
     function SHOWPROMPT(
         PROMPT in varchar2,
         PROFILE_NAME in varchar2
@@ -424,8 +436,8 @@ CREATE TABLE  <schema>.<table_name> (
         PROMPT_NEW varchar2(32767);
         TEMPLATE_POMPT varchar2(32767);
         begin
-            select PROMPT_TEMPLATE into TEMPLATE_POMPT 
-            from CUSTOM_CLOUD_AI_PROFILES 
+            select PROMPT_TEMPLATE into TEMPLATE_POMPT
+            from CUSTOM_CLOUD_AI_PROFILES
             where UPPER(AI_PROFILE_NAME)=UPPER(PROFILE_NAME);
             
             SELECT OBJECT_LIST INTO l_object_list
@@ -447,7 +459,7 @@ CREATE TABLE  <schema>.<table_name> (
                             -- 如果没有找到数据，则跳过当前循环迭代
                             continue;
                     end;
-            END LOOP;            
+            END LOOP;
 
             -- example_sql := match_keyword(PROMPT, MY_PROFILE_NAME);
             
@@ -479,7 +491,7 @@ CREATE TABLE  <schema>.<table_name> (
                     PROMPT => CUSTOM_PROMPT,
                     PROFILE_NAME => PROFILE_NAME)
             into OUTPUT_RESPONSE
-            from DUAL; 
+            from DUAL;
             return OUTPUT_RESPONSE;
 
     end SHOWSQL;
