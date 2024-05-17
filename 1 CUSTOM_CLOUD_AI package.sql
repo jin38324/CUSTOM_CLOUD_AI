@@ -4,13 +4,12 @@ CREATE OR REPLACE package CUSTOM_CLOUD_AI is
     procedure  REGIST_MODEL (
         PROVIDER varchar2,
         ENDPOINT varchar2,
-        AUTH varchar2,
-        https_wallet_path VARCHAR2,
-        https_wallet_password VARCHAR2,
+        AUTH varchar2 DEFAULT NULL,
+        https_wallet_path VARCHAR2 DEFAULT NULL,
+        https_wallet_password VARCHAR2 DEFAULT NULL,
         RESPONSE_PARSE_PATH varchar2,
         REQUEST_TEMPLATE varchar2
     );
-
 -- Unregist public LLM AI model endpoint
     procedure UNREGIST_MODEL (
         PROVIDER varchar2
