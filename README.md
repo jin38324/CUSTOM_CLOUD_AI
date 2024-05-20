@@ -9,6 +9,7 @@
 
 ## 更新记录
 
+- 20240520，增加生成SQL后的处理函数
 - 20240517，增加本地数据库连接本地模型的验证
 - 20240516，增加了对本地数据库的支持，需要配置证书。
 - 20240515，完善文档，优化json存储和解析
@@ -35,6 +36,8 @@
 	- function `CHAT` ： 直接向LLM提问，获取文本答案;
 	- function `SHOWPROMPT` ： 根据提示词模板，组装提示词
 	- function `SHOWSQL` ： 把提示词发送给LLM，获得SQL
+	- function `VALIDSQL` ： 验证SQL是否能执行，如果能返回`OK`，否则返回报错信息
+	- function `RUNSQL` ： 执行SQL语句，返回数据
 
 ## 配置方法
 
@@ -398,4 +401,49 @@ FROM DUAL;
 预期结果：
 ```sql
 SELECT SUM(AMOUNT_SOLD) AS "销售总金额" FROM SH.SALES
+```
+
+- 验证SQL
+```sql
+SELECT 
+	CUSTOM_CLOUD_AI.VALIDSQL('SELECT SUM(AMOUNT_SOLD) AS "销售总金额" FROM SH.SALES'
+	  ) as RESPONSE
+FROM DUAL;
+```
+
+预期结果：
+```sql
+RESPONSE
+OK
+```
+
+```sql
+SELECT 
+	CUSTOM_CLOUD_AI.VALIDSQL('SELECT SUM(AMOUNT_SOLD_错误) AS "销售总金额" FROM SH.SALES'
+	  ) as RESPONSE
+FROM DUAL;
+```
+
+预期结果：
+```sql
+RESPONSE
+ORA-00904: "AMOUNT_SOLD_错误": invalid identifier
+```
+
+- 执行SQL
+第二个参数`nrow`指定返回行数，默认是10
+```sql
+SELECT CUSTOM_CLOUD_AI.RUNSQL('SELECT CUST_ID,SUM(AMOUNT_SOLD) AS "销售总金额" FROM SH.SALES GROUP BY CUST_ID') as RESPONSE
+FROM DUAL;
+```
+
+指定返回2行
+```sql
+SELECT CUSTOM_CLOUD_AI.RUNSQL('SELECT CUST_ID,SUM(AMOUNT_SOLD) AS "销售总金额" FROM SH.SALES GROUP BY CUST_ID', 2) as RESPONSE
+FROM DUAL;
+```
+
+预期结果：
+```json
+[{"cust_id":12783,"销售总金额":97573.55},{"cust_id":10747,"销售总金额":99578.09}]
 ```

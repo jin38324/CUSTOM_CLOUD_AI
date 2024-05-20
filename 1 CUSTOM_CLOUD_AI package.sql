@@ -1,4 +1,4 @@
-CREATE OR REPLACE package CUSTOM_CLOUD_AI is
+create or replace package CUSTOM_CLOUD_AI is
 
 -- Regist public LLM AI model endpoint
     procedure  REGIST_MODEL (
@@ -10,6 +10,7 @@ CREATE OR REPLACE package CUSTOM_CLOUD_AI is
         RESPONSE_PARSE_PATH varchar2,
         REQUEST_TEMPLATE varchar2
     );
+
 -- Unregist public LLM AI model endpoint
     procedure UNREGIST_MODEL (
         PROVIDER varchar2
@@ -40,13 +41,14 @@ CREATE OR REPLACE package CUSTOM_CLOUD_AI is
         PROFILE_NAME in varchar2
     ) return varchar2;
 
+/*
 -- Get table DDL information
     function GET_TABLE_INFO(
         SCHEMA_NAME in varchar2,
         MY_TABLE_NAME in varchar2,
         PROFILE_NAME in varchar2
         ) return varchar2;
-
+*/
 -- Return prompt generated for SELECT AI
     function SHOWPROMPT(
         PROMPT in varchar2,
@@ -59,12 +61,22 @@ CREATE OR REPLACE package CUSTOM_CLOUD_AI is
         PROFILE_NAME in varchar2
     ) return varchar2;
 
+-- Check if the SQL is right
+    function VALIDSQL (
+        input_sql in varchar2
+        ) return varchar2;
 
+-- Run SQL and get data
+    function RUNSQL (
+        input_sql IN VARCHAR2,
+        nrows NUMBER := 10
+    ) return SYS_REFCURSOR;
 
 end CUSTOM_CLOUD_AI;
 /
 
-CREATE OR REPLACE package body CUSTOM_CLOUD_AI is
+
+create or replace package body CUSTOM_CLOUD_AI is
 
 -- 注册模型
     procedure  REGIST_MODEL (
@@ -173,7 +185,7 @@ Input:
 User Question:<prompt>
 
 Output:';
-    
+
     l_prompt_ddl clob := '### Table meaning: <table_comment>
 column_name data_type,
 CREATE TABLE  <schema>.<table_name> (
@@ -208,7 +220,7 @@ CREATE TABLE  <schema>.<table_name> (
         IF l_provider IS NULL OR l_model IS NULL OR l_object_list IS NULL THEN
             DBMS_OUTPUT.PUT_LINE('ERROR: PROFILE INFORMATION IS NOT COMPLETE!!');
         END IF;
-        
+
         -- 插入数据到表CUSTOM_CLOUD_AI_PROFILES
         insert into CUSTOM_CLOUD_AI_PROFILES (
                     AI_PROFILE_NAME, AI_DESCRIPTION, ATTRIBUTES, PROVIDER, MODEL, TEMPERATURE, MAX_TOKENS, STOP_TOKENS, OBJECT_LIST, PROMPT_TEMPLATE, PROMPT_DDL
@@ -219,7 +231,7 @@ CREATE TABLE  <schema>.<table_name> (
         commit;
 
         DBMS_OUTPUT.PUT_LINE('PROFILE CREATED SUCCESSFULLY');
-        
+
     exception
         when others then
             rollback;
@@ -325,38 +337,38 @@ CREATE TABLE  <schema>.<table_name> (
         l_request_body := REPLACE(l_request_body,'<TEMPERATURE>',TO_CHAR(V_TEMPERATURE));
         l_request_body := REPLACE(l_request_body,'<MAX_TOKENS>',NVL(TO_CHAR(V_MAX_TOKENS),'null'));
         l_request_body := REPLACE(l_request_body,'<STOP>',V_STOP_TOKENS);
-        
+
          -- Open HTTP request
         UTL_HTTP.set_wallet('file:'||l_https_wallet_path, l_https_wallet_password);
         L_HTTP_REQUEST := UTL_HTTP.BEGIN_REQUEST(URL => L_URL, METHOD => 'POST', HTTP_VERSION => 'HTTP/1.1');
-          
+
         UTL_HTTP.set_header(l_http_request, 'Content-Type', 'application/json');
         UTL_HTTP.set_header(l_http_request, 'Accept', 'application/json');
         UTL_HTTP.set_header(l_http_request, 'Authorization', 'Bearer ' || l_token);
 
         UTL_HTTP.SET_BODY_CHARSET(L_HTTP_REQUEST, 'UTF-8');
         UTL_HTTP.SET_HEADER(L_HTTP_REQUEST, 'Content-Length', LENGTHB(l_request_body));
-        
+
         UTL_HTTP.WRITE_TEXT(L_HTTP_REQUEST, l_request_body);
         DBMS_OUTPUT.put_line(l_request_body);
 
         -- Get HTTP response
         L_HTTP_RESPONSE := UTL_HTTP.GET_RESPONSE(L_HTTP_REQUEST);
-        
+
         -- Read response body
         UTL_HTTP.READ_TEXT(L_HTTP_RESPONSE, L_RESPONSE_BODY);
-        
+
         -- Close HTTP response
         UTL_HTTP.END_RESPONSE(L_HTTP_RESPONSE);
         L_RESPONSE_BODY := REPLACE(L_RESPONSE_BODY, '''', '''''');
-        
+
         -- Handle response
         DBMS_OUTPUT.put_line('Response: ' || l_response_body);
         -- DBMS_OUTPUT.put_line('SELECT JSON_VALUE('''||L_RESPONSE_BODY||''','''||L_JSONPATH||''') FROM DUAL');
         execute immediate 'SELECT JSON_VALUE('''||L_RESPONSE_BODY||''','''||L_JSONPATH||''') FROM DUAL' into L_ANSWER;
-        
+
         L_ANSWER := trim(L_ANSWER);
-        
+
         if SUBSTR(L_ANSWER, -1) = ';' then
             L_ANSWER := SUBSTR(L_ANSWER, 1, LENGTH(L_ANSWER) - 1);
         end if;
@@ -389,7 +401,7 @@ CREATE TABLE  <schema>.<table_name> (
             select PROMPT_DDL into TABLE_INFO
             from CUSTOM_CLOUD_AI_PROFILES
             where UPPER(AI_PROFILE_NAME)=UPPER(PROFILE_NAME);
-                
+
             -- TABLE_INFO :=  REPLACE(TEMPLATE_TABLE,chr(10),'\n');
 
             select COMMENTS into TABLE_COMMENT
@@ -412,7 +424,7 @@ CREATE TABLE  <schema>.<table_name> (
                     order by COLUMN_ID asc
                 )
             );
-            
+
             TABLE_INFO := REPLACE(TABLE_INFO,'<column_info>',COLUMN_INFO);
             TABLE_INFO := TABLE_INFO||CHR(10)||');'||CHR(10);
             -- EXCEPTION WHEN NO_DATA_FOUND THEN NULL;
@@ -438,7 +450,7 @@ CREATE TABLE  <schema>.<table_name> (
             select PROMPT_TEMPLATE into TEMPLATE_POMPT
             from CUSTOM_CLOUD_AI_PROFILES
             where UPPER(AI_PROFILE_NAME)=UPPER(PROFILE_NAME);
-            
+
             SELECT OBJECT_LIST INTO l_object_list
             from CUSTOM_CLOUD_AI_PROFILES
             where UPPER(AI_PROFILE_NAME)=UPPER(PROFILE_NAME);
@@ -461,9 +473,9 @@ CREATE TABLE  <schema>.<table_name> (
             END LOOP;
 
             -- example_sql := match_keyword(PROMPT, MY_PROFILE_NAME);
-            
+
             PROMPT_NEW := REPLACE(TEMPLATE_POMPT,'<table_infos>',TABLE_INFOS);
-            
+
             prompt_new := REPLACE(prompt_new,'<Example SQL pitch>','');
             PROMPT_NEW := REPLACE(PROMPT_NEW,'<prompt>',PROMPT);
 
@@ -472,18 +484,40 @@ CREATE TABLE  <schema>.<table_name> (
             return PROMPT_NEW;
         end SHOWPROMPT;
 
+-- Clean sql string
+  function CLEANSQL (
+        INPUT_SQL       in varchar2
+        ) return varchar2 is
+            l_sql varchar(32767);
+        begin
+            l_sql := TRIM(INPUT_SQL);
+
+            -- 去除两端的空白字符
+            l_sql := REGEXP_REPLACE(l_sql,'(^[[:space:]]*|[[:space:]]*$)');
+
+            -- 检查第一行是否是 ```，并删除它
+            IF INSTR(l_sql, '```')=1
+             THEN
+                l_sql := SUBSTR(l_sql, INSTR(l_sql, CHR(10)) + 1);
+                l_sql := REPLACE(l_sql,'```','');
+            END IF;
+
+            -- 去除两端的空白字符
+            l_sql := REGEXP_REPLACE(l_sql,'(^[[:space:]]*|[[:space:]]*$)');
+            -- 去除分号
+            l_sql := TRIM(';' FROM l_sql);
+            return l_sql;
+    end CLEANSQL;
+
 -- Return SQL generated by LLM
   function SHOWSQL (
         PROMPT       in varchar2,
         PROFILE_NAME in varchar2
         ) return varchar2 is
             OUTPUT_RESPONSE varchar(32767);
-            PROMPT_TEXT     varchar(32767);
-            COMMENTS_ALL varchar(32767);
             CUSTOM_PROMPT varchar(32767);
-            EXAMPLE_SQL varchar(32767) := '';
         begin
-            
+
             CUSTOM_PROMPT := SHOWPROMPT(PROMPT,PROFILE_NAME);
             select
                 CHAT(
@@ -491,10 +525,51 @@ CREATE TABLE  <schema>.<table_name> (
                     PROFILE_NAME => PROFILE_NAME)
             into OUTPUT_RESPONSE
             from DUAL;
-            return OUTPUT_RESPONSE;
+
+            OUTPUT_RESPONSE := CLEANSQL(OUTPUT_RESPONSE);
+		return OUTPUT_RESPONSE;
 
     end SHOWSQL;
 
+
+ -- Check sql and get error message if any
+    function VALIDSQL (
+        input_sql in varchar2
+    ) return varchar2 is
+        l_cursor NUMBER := dbms_sql.open_cursor;
+        l_valid varchar2(32767) := 'OK';
+    begin
+        begin
+            DBMS_SQL.PARSE (l_cursor, input_sql, DBMS_SQL.native);
+        EXCEPTION
+            WHEN OTHERS THEN 
+                l_valid := SQLERRM;
+        end;
+        dbms_sql.close_cursor(l_cursor);
+        return l_valid;
+    end VALIDSQL;
+
+
+
+-- Get sql data
+    FUNCTION RUNSQL (
+        input_sql IN VARCHAR2,
+        nrows NUMBER := 10
+    ) RETURN SYS_REFCURSOR AS
+        v_result SYS_REFCURSOR;
+        v_column_count INTEGER;
+        v_column_name VARCHAR2(256);
+        v_query VARCHAR2(32766);
+    BEGIN
+        IF INSTR(input_sql,'fetch') = 0
+            THEN v_query := input_sql ||' FETCH FIRST '||to_char(nrows)||' ROWS ONLY';
+        ELSE
+            v_query := input_sql;
+        END IF;
+
+        OPEN v_result FOR v_query;
+        RETURN v_result;
+    END RUNSQL;
 
 end CUSTOM_CLOUD_AI;
 /
