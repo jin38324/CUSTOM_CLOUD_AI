@@ -339,7 +339,10 @@ CREATE TABLE  <schema>.<table_name> (
         l_request_body := REPLACE(l_request_body,'<STOP>',V_STOP_TOKENS);
 
          -- Open HTTP request
-        UTL_HTTP.set_wallet('file:'||l_https_wallet_path, l_https_wallet_password);
+        IF l_https_wallet_path IS NOT NULL THEN
+            UTL_HTTP.set_wallet('file:'||l_https_wallet_path, l_https_wallet_password);
+        ELSE NULL;
+        END IF;
         L_HTTP_REQUEST := UTL_HTTP.BEGIN_REQUEST(URL => L_URL, METHOD => 'POST', HTTP_VERSION => 'HTTP/1.1');
 
         UTL_HTTP.set_header(l_http_request, 'Content-Type', 'application/json');

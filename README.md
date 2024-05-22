@@ -9,6 +9,7 @@
 
 ## 更新记录
 
+- 20240522，修复SET_WALLET问题
 - 20240520，增加生成SQL后的处理函数
 - 20240517，增加本地数据库连接本地模型的验证
 - 20240516，增加了对本地数据库的支持，需要配置证书。
@@ -113,6 +114,11 @@ END;
 ```
 
 对于自治数据库，或者访问http链接，以上步骤即可打通网络。对于本地数据库访问https链接，需要配置证书。配置步骤：[本地数据库访问https配置](./本地数据库访问https配置.md)
+
+访问链接以验证连通性。输出结果可能为空，不报错就算成功了。
+```sql
+SELECT UTL_HTTP.REQUEST('https://api.deepseek.com') RESPONSE from dual;
+```
 
 #### 注册模型  
 
@@ -404,6 +410,8 @@ SELECT SUM(AMOUNT_SOLD) AS "销售总金额" FROM SH.SALES
 ```
 
 - 验证SQL
+
+正确示例：
 ```sql
 SELECT 
 	CUSTOM_CLOUD_AI.VALIDSQL('SELECT SUM(AMOUNT_SOLD) AS "销售总金额" FROM SH.SALES'
@@ -416,6 +424,8 @@ FROM DUAL;
 RESPONSE
 OK
 ```
+
+返回错误的示例：
 
 ```sql
 SELECT 
@@ -431,6 +441,7 @@ ORA-00904: "AMOUNT_SOLD_错误": invalid identifier
 ```
 
 - 执行SQL
+
 第二个参数`nrow`指定返回行数，默认是10
 ```sql
 SELECT CUSTOM_CLOUD_AI.RUNSQL('SELECT CUST_ID,SUM(AMOUNT_SOLD) AS "销售总金额" FROM SH.SALES GROUP BY CUST_ID') as RESPONSE
