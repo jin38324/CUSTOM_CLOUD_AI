@@ -368,7 +368,7 @@ CREATE TABLE  <schema>.<table_name> (
         -- Handle response
         DBMS_OUTPUT.put_line('Response: ' || l_response_body);
         -- DBMS_OUTPUT.put_line('SELECT JSON_VALUE('''||L_RESPONSE_BODY||''','''||L_JSONPATH||''') FROM DUAL');
-        execute immediate 'SELECT JSON_VALUE('''||L_RESPONSE_BODY||''','''||L_JSONPATH||''') FROM DUAL' into L_ANSWER;
+        execute immediate 'SELECT JSON_VALUE(:1,'''||L_JSONPATH||''') FROM DUAL' into L_ANSWER   USING l_response_body;
 
         L_ANSWER := trim(L_ANSWER);
 
